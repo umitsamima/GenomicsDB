@@ -130,10 +130,6 @@ LoaderArrayWriter::LoaderArrayWriter(
   //Schema
   id_mapper->build_tiledb_array_schema(m_schema, array_name, m_loader_json_config.is_partitioned_by_row(), m_row_partition,
       m_loader_json_config.compress_tiledb_array());
-  //Disable synced writes
-  g_TileDB_enable_SYNC_write = m_loader_json_config.disable_synced_writes() ? 0 : 1;
-  //TileDB compression level
-  g_TileDB_compression_level = m_loader_json_config.get_tiledb_compression_level();
   //Storage manager
   size_t segment_size = m_loader_json_config.get_segment_size();
   m_storage_manager = new VariantStorageManager(workspace, segment_size);
@@ -145,7 +141,7 @@ LoaderArrayWriter::LoaderArrayWriter(
   //Array does not exist - define it first
   if(m_array_descriptor < 0)
   {
-    VERIFY_OR_THROW(m_storage_manager->define_array(m_schema, m_loader_json_config.get_num_cells_per_tile()) == TILEDB_OK
+    VERIFY_OR_THROW(m_storage_manager->define_array(m_schema, m_loader_json_config.get_num_cells_per_tile(), m_loader_json_config.get_tiledb_compression_level()) == TILEDB_OK
         && "Could not define TileDB array");
     //Open array in write mode
     m_array_descriptor = m_storage_manager->open_array(array_name, "w");
@@ -306,8 +302,14 @@ void LoaderArrayWriter::finish(const int64_t column_interval_end)
   while(!m_cell_wrapper_pq.empty())
     write_top_element_to_disk();
 #endif
-  if(m_storage_manager && m_array_descriptor >= 0)
+  if(m_storage_manager && m_array_descriptor >= 0) {
+
+    // Disable/Enable sync for writes
+    if (m_loader_json_config.disable_synced_writes()) {
+      m_storage_manager->sync_array(m_array_descriptor);
+    }
     m_storage_manager->close_array(m_array_descriptor, m_loader_json_config.consolidate_tiledb_array_after_load());
+  }
 }
 
 #ifdef HTSDIR

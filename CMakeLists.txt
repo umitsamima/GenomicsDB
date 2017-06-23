@@ -32,6 +32,9 @@ set(DO_PROFILING False CACHE BOOL "Collect some stats during execution - doesn't
 set(DO_MEMORY_PROFILING False CACHE BOOL "Collect memory consumption in parts of the combine gVCF program - high overhead")
 set(GENOMICSDB_MAVEN_BUILD_DIR ${CMAKE_BINARY_DIR}/target CACHE PATH "Path to maven build directory")
 set(MAVEN_QUIET False CACHE BOOL "Do not print mvn messages")
+set(BUILD_WITH_ZSTD_COMPRESSION False CACHE BOOL "Enables Facebook Zstd compression library in TileDB")
+set(BUILD_WITH_BLOSC_COMPRESSION False CACHE BOOL "Enables BLOSC compression library in TileDB")
+set(BUILD_WITH_LZ4_COMPRESSION False CACHE BOOL "Enables LZ4 compression library in TileDB")
 
 #Platform check modules
 include(CheckIncludeFileCXX)
@@ -98,7 +101,6 @@ find_package(htslib REQUIRED)
 include_directories(${HTSLIB_INCLUDE_DIR})
 
 #TileDB
-find_package(TileDB REQUIRED)
 include_directories(${TILEDB_INCLUDE_DIR})
 
 #librt
@@ -195,6 +197,10 @@ add_subdirectory(src)
 include_directories(${PROTOBUF_GENERATED_CXX_HDRS_INCLUDE_DIRS})
 add_subdirectory(tools)
 add_subdirectory(example)
+if (TILEDB_SOURCE_DIR)
+    set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${TILEDB_SOURCE_DIR}/cmake/Modules/")
+    add_subdirectory(${TILEDB_SOURCE_DIR})
+endif()
 
 enable_testing()
 if(BUILD_JAVA)

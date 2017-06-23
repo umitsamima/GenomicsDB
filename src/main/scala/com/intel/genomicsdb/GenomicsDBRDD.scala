@@ -67,10 +67,10 @@ class GenomicsDBRDD[VCONTEXT <: Feature: ClassTag, SOURCE: ClassTag](
     log.info(conf.toString)
     log.info(conf.get(GenomicsDBConfiguration.LOADERJSON))
     if (shouldCloneJobConf) {
-        /**
-          * Picked up from [[org.apache.spark.rdd.NewHadoopRDD]]
-          */
-        GenomicsDBRDD.CONFIGURATION_INSTANTIATION_LOCK.synchronized {
+      /**
+        * Picked up from [[org.apache.spark.rdd.NewHadoopRDD]]
+        */
+      GenomicsDBRDD.CONFIGURATION_INSTANTIATION_LOCK.synchronized {
         log.debug("Cloning Hadoop Configuration in GenomicsDBRDD")
         new Configuration(conf)
       }

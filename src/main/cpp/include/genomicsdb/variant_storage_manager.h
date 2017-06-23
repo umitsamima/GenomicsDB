@@ -26,8 +26,9 @@
 #include "headers.h"
 #include "variant_array_schema.h"
 #include "variant_cell.h"
-#include "c_api.h"
+#include "tiledb.h"
 #include "timer.h"
+
 
 //Exceptions thrown 
 class VariantStorageManagerException : public std::exception {
@@ -120,7 +121,7 @@ class VariantArrayInfo
 {
   public:
     VariantArrayInfo(int idx, int mode, const std::string& name, const VariantArraySchema& schema,
-        TileDB_Array* tiledb_array, const std::string& metadata_filename,
+    	TileDB_CTX* tiledb_ctx, TileDB_Array* tiledb_array, const std::string& metadata_filename,
         const size_t buffer_size=10u*1024u*1024u); //10MB buffer
     //Delete default copy constructor as it is incorrect
     VariantArrayInfo(const VariantArrayInfo& other) = delete;
@@ -146,7 +147,7 @@ class VariantArrayInfo
       {
         if(consolidate_tiledb_array)
         {
-          auto status = tiledb_array_consolidate(m_tiledb_array);
+          auto status = tiledb_array_consolidate(m_tiledb_ctx, m_name.c_str());
           if(status != TILEDB_OK)
             throw VariantStorageManagerException("Error while consolidating TileDB array "+m_name);
         }
@@ -178,12 +179,20 @@ class VariantArrayInfo
     {
       return (m_max_valid_row_idx_in_array - m_schema.dim_domains()[0].first + 1);
     }
+    /**
+     * Flush data written by TileDB
+     * to disk
+     */
+    int sync_array() {
+      return tiledb_array_sync(m_tiledb_array);
+    }
   private:
     int m_idx;
     int m_mode;
     std::string m_name;
     VariantArraySchema m_schema;
     BufferVariantCell m_cell;
+    TileDB_CTX* m_tiledb_ctx;
     TileDB_Array* m_tiledb_array;
     std::string m_metadata_filename;
     //For writing cells
@@ -227,9 +236,11 @@ class VariantStorageManager
     bool check_if_TileDB_array_exists(const std::string& array_name);
     int open_array(const std::string& array_name, const char* mode);
     void close_array(const int ad, const bool consolidate_tiledb_array=false);
-    int define_array(const VariantArraySchema* variant_array_schema, const size_t num_cells_per_tile=1000u);
+    int define_array(const VariantArraySchema* variant_array_schema, const size_t num_cells_per_tile=1000u, const int compression_level=6);
     void delete_array(const std::string& array_name);
     int define_metadata_schema(const VariantArraySchema* variant_array_schema);
+    int sync_array(const int ad);
+
     /*
      * Load array schema
      */

@@ -39,6 +39,8 @@ std::vector<const char*> VariantStorageManager::m_metadata_attributes = std::vec
 //ceil(buffer_size/field_size)*field_size
 #define GET_ALIGNED_BUFFER_SIZE(buffer_size, field_size) ((((buffer_size)+(field_size)-1u)/(field_size))*(field_size))
 
+typedef struct TileDB_Array TileDB_Array;
+
 //VariantArrayCellIterator functions
 VariantArrayCellIterator::VariantArrayCellIterator(TileDB_CTX* tiledb_ctx, const VariantArraySchema& variant_array_schema,
         const std::string& array_path, const int64_t* range, const std::vector<int>& attribute_ids, const size_t buffer_size)
@@ -56,7 +58,7 @@ VariantArrayCellIterator::VariantArrayCellIterator(TileDB_CTX* tiledb_ctx, const
     //Buffer size must be resized to be a multiple of the field size
     auto curr_buffer_size = buffer_size;
     attribute_names[i] = variant_array_schema.attribute_name(attribute_ids[i]).c_str();
-    //For varible length attributes, need extra buffer for maintaining offsets
+    //For variable length attributes, need extra buffer for maintaining offsets
     if(variant_array_schema.is_variable_length_field(attribute_ids[i]))
     {
       curr_buffer_size = GET_ALIGNED_BUFFER_SIZE(buffer_size, sizeof(size_t));
@@ -79,9 +81,10 @@ VariantArrayCellIterator::VariantArrayCellIterator(TileDB_CTX* tiledb_ctx, const
   }
   /* Initialize the array in READ mode. */
   auto status = tiledb_array_iterator_init(
-      tiledb_ctx, 
+      tiledb_ctx,
       &m_tiledb_array_iterator,
       array_path.c_str(),
+	  TILEDB_ARRAY_READ,
       reinterpret_cast<const void*>(range), // range, 
       &(attribute_names[0]),           
       attribute_names.size(),
@@ -128,9 +131,10 @@ const BufferVariantCell& VariantArrayCellIterator::operator*()
 
 //VariantArrayInfo functions
 VariantArrayInfo::VariantArrayInfo(int idx, int mode, const std::string& name,
-    const VariantArraySchema& schema, TileDB_Array* tiledb_array, const std::string& metadata_filename,
-    const size_t buffer_size)
-: m_idx(idx), m_mode(mode), m_name(name), m_schema(schema), m_cell(m_schema), m_tiledb_array(tiledb_array),
+    const VariantArraySchema& schema, TileDB_CTX* tiledb_ctx, TileDB_Array* tiledb_array,
+	const std::string& metadata_filename, const size_t buffer_size)
+: m_idx(idx), m_mode(mode), m_name(name), m_schema(schema), m_cell(m_schema),
+  m_tiledb_ctx(tiledb_ctx), m_tiledb_array(tiledb_array),
   m_metadata_filename(metadata_filename)
 {
   //If writing, allocate buffers
@@ -139,12 +143,12 @@ VariantArrayInfo::VariantArrayInfo(int idx, int mode, const std::string& name,
     m_buffers.clear();
     for(auto i=0ull;i<schema.attribute_num();++i)
     {
-      //For varible length attributes, need extra buffer for maintaining offsets
+      //For variable length attributes, need extra buffer for maintaining offsets
       if(m_schema.is_variable_length_field(i))
         m_buffers.emplace_back(buffer_size);
       m_buffers.emplace_back(buffer_size);
     }
-    //Co-ordinates
+    //Coordinates
     m_buffers.emplace_back(buffer_size);
     //Initialize pointers to buffers
     m_buffer_pointers.resize(m_buffers.size());
@@ -393,12 +397,16 @@ int VariantStorageManager::open_array(const std::string& array_name, const char*
         define_metadata_schema(&tmp_schema);
       else
         fclose(fptr);
-      m_open_arrays_info_vector.emplace_back(idx, mode_int, array_name, tmp_schema, tiledb_array,
+      m_open_arrays_info_vector.emplace_back(idx, mode_int, array_name, tmp_schema, m_tiledb_ctx, tiledb_array,
           GET_METADATA_PATH(m_workspace, array_name), m_segment_size);
       return idx;
     }
   }
   return -1;
+}
+
+int VariantStorageManager::sync_array(const int ad) {
+  return m_open_arrays_info_vector[ad].sync_array();
 }
 
 void VariantStorageManager::close_array(const int ad, const bool consolidate_tiledb_array)
@@ -408,7 +416,7 @@ void VariantStorageManager::close_array(const int ad, const bool consolidate_til
   m_open_arrays_info_vector[ad].close_array(consolidate_tiledb_array);
 }
 
-int VariantStorageManager::define_array(const VariantArraySchema* variant_array_schema, const size_t num_cells_per_tile)
+int VariantStorageManager::define_array(const VariantArraySchema* variant_array_schema, const size_t num_cells_per_tile, const int compression_level)
 {
   //Attribute attributes
   std::vector<const char*> attribute_names(variant_array_schema->attribute_num());
@@ -477,6 +485,11 @@ int VariantStorageManager::define_array(const VariantArraySchema* variant_array_
   auto status = tiledb_array_create(m_tiledb_ctx, &array_schema);
   if(status == TILEDB_OK)
   {
+    /* Set the compression level */
+    status = tiledb_array_set_compression_level(&array_schema, compression_level);
+    if (status != TILEDB_OK) {
+      return status;
+    }
     status = tiledb_array_free_schema(&array_schema);
     if(status == TILEDB_OK)
       status = define_metadata_schema(variant_array_schema);
@@ -599,3 +612,4 @@ void VariantStorageManager::update_row_bounds_in_array(const int ad, const int64
   m_open_arrays_info_vector[ad].update_row_bounds_in_array(m_tiledb_ctx,
       GET_METADATA_PATH(m_workspace,m_open_arrays_info_vector[ad].get_array_name()), lb_row_idx, max_valid_row_idx_in_array);
 }
+
